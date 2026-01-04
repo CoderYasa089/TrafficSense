@@ -1,0 +1,4 @@
+# Ignore large videos and outputs
+datasets/videos/
+demos/
+runs/
