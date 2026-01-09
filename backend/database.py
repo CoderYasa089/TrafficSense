@@ -2,10 +2,12 @@ import sqlite3
 
 DB_NAME = "traffic.db"
 
+
 def get_connection():
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
     return conn
+
 
 def create_table():
     conn = get_connection()
@@ -19,12 +21,16 @@ def create_table():
         vehicle_type TEXT,
         violation_type TEXT,
         speed INTEGER,
-        image_path TEXT
+        image_path TEXT,
+        pdf_path TEXT,
+        confidence REAL,
+        track_id TEXT
     )
     """)
 
     conn.commit()
     conn.close()
+
 
 def insert_dummy():
     conn = get_connection()
@@ -40,8 +46,30 @@ def insert_dummy():
         "Car",
         "Over Speed",
         92,
-        "images/car1.jpg"
+        "uploads/car1.jpg"
     ))
+
+    conn.commit()
+    conn.close()
+
+
+def migrate_database():
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    columns = {
+        "pdf_path": "TEXT",
+        "confidence": "REAL",
+        "track_id": "TEXT"
+    }
+
+    for column, col_type in columns.items():
+        try:
+            cursor.execute(
+                f"ALTER TABLE violations ADD COLUMN {column} {col_type}"
+            )
+        except:
+            pass
 
     conn.commit()
     conn.close()
