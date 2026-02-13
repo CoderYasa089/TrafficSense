@@ -69,7 +69,7 @@ async def upload_image(file: UploadFile = File(...)):
     return {"image_path": path}
 
 # -------------------------------
-# ADD VIOLATION (NO PDF HERE)
+# ADD VIOLATION
 # -------------------------------
 @app.post("/violation")
 def add_violation(v: Violation):
@@ -111,7 +111,7 @@ def report_violation(v: Violation):
     return add_violation(v)
 
 # -------------------------------
-# JAN-22 ANALYTICS APIs ✅
+# ANALYTICS APIs
 # -------------------------------
 @app.get("/stats/total_violations")
 def total_violations():
@@ -166,7 +166,7 @@ def peak_time():
     return data
 
 # -------------------------------
-# JAN-23 PDF (ON DEMAND ONLY) ✅
+# PDF GENERATION
 # -------------------------------
 @app.get("/ticket/{violation_id}")
 def generate_ticket(violation_id: int, auth: bool = Depends(verify_token)):
@@ -207,6 +207,7 @@ def get_violations(auth: bool = Depends(verify_token)):
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
     return rows
+
 
 
 
