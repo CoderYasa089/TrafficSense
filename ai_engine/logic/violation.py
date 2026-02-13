@@ -1,15 +1,49 @@
+# ai_engine/logic/violation.py
+
 import time
 
-speed_memory = {}
+MIN_HISTORY = 3          # 🔑 warm-up frames
+SPEED_THRESHOLD = 150    # tune later
 
-def check_speed(track_id, position):
-    now = time.time()
+speed_memory = {}        # { track_id: [(pos, time), ...] }
+violation_count = {}     # { track_id: count }
 
-    if track_id in speed_memory:
-        prev_pos, prev_time = speed_memory[track_id]
-        speed = abs(position - prev_pos) / (now - prev_time)
-        if speed > 12:
-            return True, speed
+def check_speed(track_id, position, current_time):
+    # Initialize memory
+    if track_id not in speed_memory:
+        speed_memory[track_id] = []
+        violation_count[track_id] = 0
+        return False, 0
 
-    speed_memory[track_id] = (position, now)
-    return False, 0
+    # Append history
+    speed_memory[track_id].append((position, current_time))
+
+    # 🔒 FIX 1: Warm-up phase
+    if len(speed_memory[track_id]) < MIN_HISTORY:
+        return False, 0
+
+    # Use last two points only
+    prev_pos, prev_time = speed_memory[track_id][-2]
+    curr_pos, curr_time = speed_memory[track_id][-1]
+
+    dt = curr_time - prev_time
+    if dt <= 0:
+        return False, 0
+
+    speed = abs(curr_pos - prev_pos) / dt
+
+    # Count violations temporally
+    if speed > SPEED_THRESHOLD:
+        violation_count[track_id] += 1
+    else:
+        violation_count[track_id] = 0
+
+    # 🔒 FIX 4 applied here (temporal confirmation)
+    if violation_count[track_id] >= 3:
+        return True, speed
+
+    return False, speed
+
+def reset_violation_state():
+    speed_memory.clear()
+    violation_count.clear()
