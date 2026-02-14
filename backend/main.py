@@ -7,7 +7,7 @@ import os
 import sqlite3
 from fpdf import FPDF
 
-from database import get_connection, migrate_database
+from database import get_connection, create_table, migrate_database
 
 app = FastAPI()
 
@@ -36,6 +36,7 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
 # -------------------------------
 @app.on_event("startup")
 def startup():
+    create_table()
     migrate_database()
 
 # -------------------------------

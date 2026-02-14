@@ -6,9 +6,10 @@ def start_video_engine(video_path):
     from ai_engine.logic.violation import check_speed, reset_violation_state
     from ai_engine.evidence.evidence import save_violation
 
-    ALLOWED_CLASSES = [2, 3, 5, 7]
+    ALLOWED_CLASSES = [2, 3, 5, 7]  # car, motorcycle, bus, truck
 
-    reset_violation_state()  # 🔑 FIX 3
+    # FIX 3: reset state per video
+    reset_violation_state()
 
     model = YOLO("ai_engine/models/yolov8m.pt")
     cap = cv2.VideoCapture(video_path)
@@ -43,11 +44,37 @@ def start_video_engine(video_path):
             center_x = l + (r - l) // 2
 
             violated, speed = check_speed(track_id, center_x, now)
+
             if violated:
                 save_violation(frame, track_id)
+                cv2.putText(
+                    frame,
+                    "VIOLATION",
+                    (l, t0 - 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 0, 255),
+                    2
+                )
+
+            # ALWAYS draw bounding box
+            cv2.rectangle(frame, (l, t0), (r, b), (0, 255, 0), 2)
+            cv2.putText(
+                frame,
+                f"ID {track_id}",
+                (l, t0 - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (255, 255, 0),
+                2
+            )
 
         cv2.imshow("TrafficSense Offline", frame)
-        if cv2.waitKey(1) == 27:
+
+        key = cv2.waitKey(1) & 0xFF
+        if key == 27 or cv2.getWindowProperty(
+            "TrafficSense Offline", cv2.WND_PROP_VISIBLE
+        ) < 1:
             break
 
     cap.release()
