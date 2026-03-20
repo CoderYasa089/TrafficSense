@@ -1,4 +1,17 @@
-# Ignore large videos and outputs
-datasets/videos/
-demos/
+__pycache__/
+*.pyc
+
+ai_env/
+venv/
+
+*.pt
+*.onnx
+*.engine
+
 runs/
+
+backend/traffic.db
+backend/uploads/
+backend/tickets/
+
+data/videos/
