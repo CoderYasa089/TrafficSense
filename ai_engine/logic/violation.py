@@ -2,8 +2,8 @@
 
 import time
 
-MIN_HISTORY = 3          # 🔑 warm-up frames
-SPEED_THRESHOLD = 150    # tune later
+MIN_HISTORY = 3          #  warm-up frames
+SPEED_THRESHOLD = 50    # tune later
 
 speed_memory = {}        # { track_id: [(pos, time), ...] }
 violation_count = {}     # { track_id: count }
@@ -18,7 +18,7 @@ def check_speed(track_id, position, current_time):
     # Append history
     speed_memory[track_id].append((position, current_time))
 
-    # 🔒 FIX 1: Warm-up phase
+    #  FIX 1: Warm-up phase
     if len(speed_memory[track_id]) < MIN_HISTORY:
         return False, 0
 

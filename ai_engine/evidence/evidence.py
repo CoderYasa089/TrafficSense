@@ -19,7 +19,7 @@ def save_violation(frame, track_id):
     payload = {
         "time": ts,
         "camera_id": "CAM_DEMO",
-        "vehicle_type": "Unknown",
+        "vehicle_type": "Not implemented",
         "violation_type": "Speed",
         "speed": 0,
         "image_path": img_path,

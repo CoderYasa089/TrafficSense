@@ -24,7 +24,7 @@ app.mount("/tickets", StaticFiles(directory="tickets"), name="tickets")
 # SECURITY
 # -------------------------------
 security = HTTPBearer()
-ADMIN_TOKEN = "my_admin_secret_token"
+ADMIN_TOKEN = "admin_secret_token"
 
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     if credentials.credentials != ADMIN_TOKEN:
