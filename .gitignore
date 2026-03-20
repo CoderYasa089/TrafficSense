@@ -1,17 +1,28 @@
+# Python
 __pycache__/
 *.pyc
 
+# Virtual Environment
 ai_env/
 venv/
 
+# Models
 *.pt
 *.onnx
 *.engine
 
-runs/
+# Data (large files)
+data/videos/
+data/outputs/
+
+# OS files
+.DS_Store
+Thumbs.db
 
 backend/traffic.db
 backend/uploads/
 backend/tickets/
 
-data/videos/
+# Outputs
+runs/
+outputs/
