@@ -46,13 +46,15 @@ class Violation(BaseModel):
     time: str
     camera_id: str
     vehicle_type: str
-    vehicle_subtype: Optional[str] = None   # NEW
+    vehicle_subtype: Optional[str] = None
     violation_type: str
     speed: int
     image_path: str
     confidence: Optional[float] = None
     track_id: str
-    plate_number: Optional[str] = None      # NEW
+    plate_number: Optional[str] = None
+    video_time: Optional[float] = None
+    pdf_path: Optional[str] = None  # 🔥 FIX
 
 # -------------------------------
 # HEALTH
@@ -79,33 +81,39 @@ def add_violation(v: Violation):
     conn = get_connection()
     cur = conn.cursor()
 
-    try:
-        cur.execute("""
-        INSERT INTO violations
-        (time, camera_id, vehicle_type, vehicle_subtype, violation_type,
-        speed, image_path, confidence, track_id, plate_number)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            v.time,
-            v.camera_id,
-            v.vehicle_type,
-            v.vehicle_subtype,
-            v.violation_type,
-            v.speed,
-            v.image_path,
-            v.confidence,
-            v.track_id,
-            v.plate_number
-        ))
+    # 🔥 FIXED duplicate prevention
+    cur.execute("""
+    SELECT * FROM violations 
+    WHERE track_id=? AND violation_type=?
+    """, (v.track_id, v.violation_type))
 
-        conn.commit()
-        vid = cur.lastrowid
-
-    except sqlite3.IntegrityError:
+    if cur.fetchone():
         conn.close()
-        return {"message": "Duplicate violation ignored"}
+        return {"message": "Duplicate ignored"}
 
+    cur.execute("""
+    INSERT INTO violations
+    (time, camera_id, vehicle_type, vehicle_subtype, violation_type,
+     speed, image_path, confidence, track_id, plate_number, video_time)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        v.time,
+        v.camera_id,
+        v.vehicle_type,
+        v.vehicle_subtype,
+        v.violation_type,
+        v.speed,
+        v.image_path,
+        v.confidence,
+        v.track_id,
+        v.plate_number,
+        v.video_time
+    ))
+
+    conn.commit()
+    vid = cur.lastrowid
     conn.close()
+
     return {"message": "Violation stored", "violation_id": vid}
 
 # -------------------------------
@@ -114,6 +122,68 @@ def add_violation(v: Violation):
 @app.post("/report_violation")
 def report_violation(v: Violation):
     return add_violation(v)
+
+# -------------------------------
+# VIEW ALL VIOLATIONS
+# -------------------------------
+@app.get("/violations")
+def get_violations(auth: bool = Depends(verify_token)):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM violations")
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+# -------------------------------
+# LATEST VIOLATION
+# -------------------------------
+@app.get("/violations/latest")
+def latest_violation(auth: bool = Depends(verify_token)):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+    SELECT * FROM violations
+    ORDER BY id DESC LIMIT 1
+    """)
+
+    row = cur.fetchone()
+    conn.close()
+
+    if not row:
+        return {"message": "No violations found"}
+
+    return dict(row)
+
+# -------------------------------
+# FILTER VIOLATIONS
+# -------------------------------
+@app.get("/violations/filter")
+def filter_violations(
+    vehicle_type: str = None,
+    violation_type: str = None,
+    auth: bool = Depends(verify_token)
+):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    query = "SELECT * FROM violations WHERE 1=1"
+    params = []
+
+    if vehicle_type:
+        query += " AND vehicle_type=?"
+        params.append(vehicle_type)
+
+    if violation_type:
+        query += " AND violation_type=?"
+        params.append(violation_type)
+
+    cur.execute(query, params)
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+
+    return rows
 
 # -------------------------------
 # ANALYTICS APIs
@@ -126,7 +196,6 @@ def total_violations():
     total = cur.fetchone()[0]
     conn.close()
     return {"total_violations": total}
-
 
 @app.get("/stats/by_vehicle")
 def by_vehicle():
@@ -141,7 +210,6 @@ def by_vehicle():
     conn.close()
     return data
 
-
 @app.get("/stats/by_camera")
 def by_camera():
     conn = get_connection()
@@ -154,7 +222,6 @@ def by_camera():
     data = {row[0]: row[1] for row in cur.fetchall()}
     conn.close()
     return data
-
 
 @app.get("/stats/peak_time")
 def peak_time():
@@ -200,22 +267,3 @@ def generate_ticket(violation_id: int, auth: bool = Depends(verify_token)):
     conn.close()
 
     return {"ticket_path": path}
-
-# -------------------------------
-# VIEW VIOLATIONS
-# -------------------------------
-@app.get("/violations")
-def get_violations(auth: bool = Depends(verify_token)):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM violations")
-    rows = [dict(r) for r in cur.fetchall()]
-    conn.close()
-    return rows
-
-
-
-
-
-
-

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>TrafficSense</title>
+    <style>
+        body {
+            font-family: Arial;
+            background: #111;
+            color: white;
+            text-align: center;
+        }
+        input, button {
+            margin: 10px;
+            padding: 10px;
+        }
+        button {
+            background: green;
+            color: white;
+            border: none;
+        }
+    </style>
+</head>
+
+<body>
+
+<h1>🚦 TrafficSense Dashboard</h1>
+
+<h3>Upload Image</h3>
+<input type="file" id="file">
+<button onclick="uploadImage()">Upload</button>
+
+<h3>Add Violation</h3>
+<input placeholder="Time" id="time">
+<input placeholder="Camera ID" id="camera">
+<input placeholder="Vehicle Type" id="vehicle">
+<input placeholder="Violation Type" id="violation">
+<input placeholder="Speed" id="speed">
+<button onclick="addViolation()">Submit</button>
+
+<h3>Latest Violation</h3>
+<button onclick="getLatest()">Get Latest</button>
+
+<pre id="output"></pre>
+
+<script>
+
+const BASE_URL = "http://127.0.0.1:8000";
+
+// Upload Image
+async function uploadImage() {
+    let file = document.getElementById("file").files[0];
+    let formData = new FormData();
+    formData.append("file", file);
+
+    let res = await fetch(BASE_URL + "/upload", {
+        method: "POST",
+        body: formData
+    });
+
+    let data = await res.json();
+    alert("Uploaded: " + data.image_path);
+}
+
+// Add Violation
+async function addViolation() {
+    let data = {
+        time: document.getElementById("time").value,
+        camera_id: document.getElementById("camera").value,
+        vehicle_type: document.getElementById("vehicle").value,
+        violation_type: document.getElementById("violation").value,
+        speed: parseInt(document.getElementById("speed").value),
+        image_path: "uploads/test.jpg",
+        track_id: "1"
+    };
+
+    let res = await fetch(BASE_URL + "/violation", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(data)
+    });
+
+    let result = await res.json();
+    alert(result.message);
+}
+
+// Get Latest Violation
+async function getLatest() {
+    let res = await fetch(BASE_URL + "/violations/latest");
+    let data = await res.json();
+
+    document.getElementById("output").innerText = JSON.stringify(data, null, 2);
+}
+
+</script>
+
+</body>
+</html>

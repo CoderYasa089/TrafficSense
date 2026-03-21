@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>TrafficSense</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial;
+            background: linear-gradient(to right, #0f2027, #203a43, #2c5364);
+            color: white;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            padding: 20px 50px;
+        }
+
+        button {
+            background: #2d7ef7;
+            border: none;
+            padding: 10px 20px;
+            color: white;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+
+        .center {
+            text-align: center;
+            padding: 80px 20px;
+        }
+
+        input {
+            padding: 10px;
+            margin: 5px;
+            border-radius: 5px;
+            border: none;
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            padding: 40px;
+        }
+
+        .card {
+            background: #1e2a38;
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        #dashboard {
+            display: none;
+            padding: 40px;
+        }
+
+        .stats {
+            display: flex;
+            gap: 20px;
+        }
+
+        .stat-box {
+            flex: 1;
+            background: #1e2a38;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        img {
+            margin-top: 10px;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+
+<body>
+
+<header>
+    <h2>🚦 TrafficSense</h2>
+    <button onclick="showLogin()">Login</button>
+</header>
+
+<!-- LANDING -->
+<div id="landing" class="center">
+    <h1>AI-Powered Real-Time Traffic Monitoring</h1>
+    <p>Smart AI system for detecting violations & improving road safety</p>
+</div>
+
+<!-- LOGIN -->
+<div id="login" class="center" style="display:none;">
+    <h2>Login</h2>
+    <input type="password" id="token" placeholder="Enter Admin Token">
+    <br>
+    <button onclick="login()">Login</button>
+</div>
+
+<!-- FEATURES -->
+<div class="features">
+    <div class="card">🚗 Speed Detection</div>
+    <div class="card">📊 Vehicle Count</div>
+    <div class="card">🪪 License Plate</div>
+    <div class="card">🚫 Wrong Way</div>
+    <div class="card">🪖 Helmet Detection</div>
+    <div class="card">🪑 Seatbelt</div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard">
+    <h2>📊 Dashboard</h2>
+
+    <button onclick="logout()">Logout</button>
+
+    <!-- STATS -->
+    <div class="stats">
+        <div class="stat-box">Total Violations<br><span id="total">0</span></div>
+        <div class="stat-box">Cars<br><span id="cars">0</span></div>
+        <div class="stat-box">Bikes<br><span id="bikes">0</span></div>
+    </div>
+
+    <br>
+
+    <button onclick="getStats()">Load Stats</button>
+    <button onclick="getLatest()">Latest Violation</button>
+
+    <br><br>
+
+    <!-- UPLOAD IMAGE -->
+    <h3>Upload Vehicle Image</h3>
+    <input type="file" id="file">
+    <button onclick="uploadImage()">Upload</button>
+
+    <!-- ADD VIOLATION -->
+    <h3>Add Violation</h3>
+    <input id="time" placeholder="Time">
+    <input id="camera" placeholder="Camera ID">
+    <input id="vehicle" placeholder="Vehicle Type">
+    <input id="violation" placeholder="Violation Type">
+    <input id="speed" placeholder="Speed">
+    <button onclick="addViolation()">Submit</button>
+
+    <div id="output"></div>
+</div>
+
+<script>
+
+const BASE_URL = "http://127.0.0.1:8000";
+let TOKEN = "";
+let IMAGE_PATH = "";
+
+// SHOW LOGIN
+function showLogin() {
+    document.getElementById("landing").style.display = "none";
+    document.getElementById("login").style.display = "block";
+}
+
+// LOGIN
+function login() {
+    let input = document.getElementById("token").value;
+
+    if (input === "admin_secret_token") {
+        TOKEN = input;
+        document.getElementById("login").style.display = "none";
+        document.getElementById("dashboard").style.display = "block";
+        getStats();
+    } else {
+        alert("Invalid Token ❌");
+    }
+}
+
+// LOGOUT
+function logout() {
+    TOKEN = "";
+    document.getElementById("dashboard").style.display = "none";
+    document.getElementById("landing").style.display = "block";
+}
+
+// GET STATS
+async function getStats() {
+    let res = await fetch(BASE_URL + "/stats/total_violations");
+    let data = await res.json();
+    document.getElementById("total").innerText = data.total_violations;
+
+    let res2 = await fetch(BASE_URL + "/stats/by_vehicle");
+    let data2 = await res2.json();
+
+    document.getElementById("cars").innerText = data2.car || 0;
+    document.getElementById("bikes").innerText = data2.bike || 0;
+}
+
+// GET LATEST (WITH IMAGE)
+async function getLatest() {
+    let res = await fetch(BASE_URL + "/violations/latest");
+    let data = await res.json();
+
+    document.getElementById("output").innerHTML = `
+        <b>Time:</b> ${data.time} <br>
+        <b>Vehicle:</b> ${data.vehicle_type} <br>
+        <b>Speed:</b> ${data.speed} <br>
+        <b>Violation:</b> ${data.violation_type} <br><br>
+        <img src="http://127.0.0.1:8000/${data.image_path}" width="300">
+    `;
+}
+
+// UPLOAD IMAGE
+async function uploadImage() {
+    let file = document.getElementById("file").files[0];
+    let formData = new FormData();
+    formData.append("file", file);
+
+    let res = await fetch(BASE_URL + "/upload", {
+        method: "POST",
+        body: formData
+    });
+
+    let data = await res.json();
+    IMAGE_PATH = data.image_path;
+
+    alert("Uploaded: " + IMAGE_PATH);
+}
+
+// ADD VIOLATION
+async function addViolation() {
+    let data = {
+        time: document.getElementById("time").value,
+        camera_id: document.getElementById("camera").value,
+        vehicle_type: document.getElementById("vehicle").value,
+        violation_type: document.getElementById("violation").value,
+        speed: parseInt(document.getElementById("speed").value),
+        image_path: IMAGE_PATH || "uploads/test.jpg",
+        track_id: "1"
+    };
+
+    let res = await fetch(BASE_URL + "/violation", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(data)
+    });
+
+    let result = await res.json();
+    alert(result.message);
+}
+
+</script>
+
+</body>
+</html>

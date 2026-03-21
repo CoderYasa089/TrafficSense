@@ -3,14 +3,9 @@ import torch
 
 class Detector:
     def __init__(self, model_path="ai_engine/models/yolov8s.pt"):
-        # Load model
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = YOLO(model_path)
 
-        # Move model to GPU
-        self.model.to(self.device)
-
-        # Allowed classes (reduce false detections)
         self.allowed_classes = [
             "person",
             "car",
@@ -23,22 +18,16 @@ class Detector:
         print(f"[INFO] Detector initialized on {self.device}")
 
     def detect(self, frame):
-        """
-        Run detection on a frame
-        """
         results = self.model(
             frame,
-            device=self.device,
             conf=0.4,
-            stream=False
+            imgsz=640
         )
 
         detections = []
 
         for r in results:
-            boxes = r.boxes
-
-            for box in boxes:
+            for box in r.boxes:
                 cls_id = int(box.cls[0])
                 cls_name = self.model.names[cls_id]
 

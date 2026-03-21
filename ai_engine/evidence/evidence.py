@@ -1,37 +1,41 @@
 import cv2
-from datetime import datetime
 import os
+import datetime
 
-BASE_DIR = "ai_engine/evidence/output"
-os.makedirs(BASE_DIR, exist_ok=True)
+OUTPUT_DIR = "data/outputs"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-def save_violation(frame, track_id):
-    import requests
-    import time
-    from datetime import datetime
-    import cv2
-    import os
+def save_violation_image(frame, obj):
+    # 🔥 Work on a copy (IMPORTANT)
+    frame_copy = frame.copy()
 
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    img_path = f"ai_engine/evidence/output/{track_id}_{int(time.time())}.jpg"
-    cv2.imwrite(img_path, frame)
+    x1, y1, x2, y2 = obj["bbox"]
 
-    payload = {
-        "time": ts,
-        "camera_id": "CAM_DEMO",
-        "vehicle_type": "Not implemented",
-        "violation_type": "Speed",
-        "speed": 0,
-        "image_path": img_path,
-        "confidence": 0.9,
-        "track_id": str(track_id)
-    }
+    # 🔥 Safe text position
+    y_text = max(20, y1 - 10)
 
-    try:
-        requests.post(
-            "http://127.0.0.1:8000/report_violation",
-            json=payload,
-            timeout=0.5
-        )
-    except:
-        pass  # NEVER break AI loop
+    label = f"{obj['class']} | VID {obj['violation_id']}"
+
+    # Draw box + label
+    cv2.rectangle(frame_copy, (x1, y1), (x2, y2), (0, 0, 255), 2)
+    cv2.putText(frame_copy, label, (x1, y_text),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+
+    # 🔥 Padding
+    padding = 40  # increased for better visibility
+
+    x1 = max(0, x1 - padding)
+    y1 = max(0, y1 - padding)
+    x2 = min(frame.shape[1], x2 + padding)
+    y2 = min(frame.shape[0], y2 + padding)
+
+    crop = frame_copy[y1:y2, x1:x2]
+
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    filename = f"{obj['violation_id']}_{timestamp}.jpg"
+    path = os.path.join(OUTPUT_DIR, filename)
+
+    cv2.imwrite(path, crop)
+
+    return path
