@@ -46,11 +46,13 @@ class Violation(BaseModel):
     time: str
     camera_id: str
     vehicle_type: str
+    vehicle_subtype: Optional[str] = None   # NEW
     violation_type: str
     speed: int
     image_path: str
     confidence: Optional[float] = None
     track_id: str
+    plate_number: Optional[str] = None      # NEW
 
 # -------------------------------
 # HEALTH
@@ -80,18 +82,20 @@ def add_violation(v: Violation):
     try:
         cur.execute("""
         INSERT INTO violations
-        (time, camera_id, vehicle_type, violation_type,
-         speed, image_path, confidence, track_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (time, camera_id, vehicle_type, vehicle_subtype, violation_type,
+        speed, image_path, confidence, track_id, plate_number)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             v.time,
             v.camera_id,
             v.vehicle_type,
+            v.vehicle_subtype,
             v.violation_type,
             v.speed,
             v.image_path,
             v.confidence,
-            v.track_id
+            v.track_id,
+            v.plate_number
         ))
 
         conn.commit()

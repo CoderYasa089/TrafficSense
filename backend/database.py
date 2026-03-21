@@ -15,16 +15,18 @@ def create_table():
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS violations (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        time TEXT,
-        camera_id TEXT,
-        vehicle_type TEXT,
-        violation_type TEXT,
-        speed INTEGER,
-        image_path TEXT,
-        pdf_path TEXT,
-        confidence REAL,
-        track_id TEXT
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    time TEXT,
+    camera_id TEXT,
+    vehicle_type TEXT,
+    vehicle_subtype TEXT,   -- NEW
+    violation_type TEXT,
+    speed INTEGER,
+    image_path TEXT,
+    pdf_path TEXT,
+    confidence REAL,
+    track_id TEXT,
+    plate_number TEXT       -- NEW
     )
     """)
 
@@ -58,9 +60,11 @@ def migrate_database():
     cursor = conn.cursor()
 
     columns = {
-        "pdf_path": "TEXT",
-        "confidence": "REAL",
-        "track_id": "TEXT"
+    "pdf_path": "TEXT",
+    "confidence": "REAL",
+    "track_id": "TEXT",
+    "vehicle_subtype": "TEXT",
+    "plate_number": "TEXT"
     }
 
     for column, col_type in columns.items():
