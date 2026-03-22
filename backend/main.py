@@ -1,24 +1,49 @@
 from fastapi import FastAPI, File, UploadFile, Depends, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 import os
-import sqlite3
 from fpdf import FPDF
 
 from database import get_connection, create_table, migrate_database
 
-app = FastAPI()
+app = FastAPI(title="TrafficSense Backend")
+
+# -------------------------------
+# CORS (🔥 REQUIRED FOR FRONTEND)
+# -------------------------------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# -------------------------------
+# PATH SETUP (🔥 FIXED)
+# -------------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
+TICKET_DIR = os.path.join(BASE_DIR, "tickets")
+
+# 🔥 CRITICAL: correct data path
+DATA_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "data"))
+
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(TICKET_DIR, exist_ok=True)
 
 # -------------------------------
 # STATIC FILES
 # -------------------------------
-os.makedirs("uploads", exist_ok=True)
-os.makedirs("tickets", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+app.mount("/tickets", StaticFiles(directory=TICKET_DIR), name="tickets")
 
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
-app.mount("/tickets", StaticFiles(directory="tickets"), name="tickets")
+# 🔥 THIS FIXES IMAGE 404
+app.mount("/data", StaticFiles(directory=DATA_DIR), name="data")
 
 # -------------------------------
 # SECURITY
@@ -26,10 +51,12 @@ app.mount("/tickets", StaticFiles(directory="tickets"), name="tickets")
 security = HTTPBearer()
 ADMIN_TOKEN = "admin_secret_token"
 
+
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     if credentials.credentials != ADMIN_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid token")
     return True
+
 
 # -------------------------------
 # STARTUP
@@ -38,6 +65,7 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
 def startup():
     create_table()
     migrate_database()
+
 
 # -------------------------------
 # MODELS
@@ -56,6 +84,7 @@ class Violation(BaseModel):
     video_time: Optional[float] = None
     pdf_path: Optional[str] = None
 
+
 # -------------------------------
 # HEALTH
 # -------------------------------
@@ -63,15 +92,23 @@ class Violation(BaseModel):
 def health():
     return {"status": "ok"}
 
+
 # -------------------------------
 # IMAGE UPLOAD
 # -------------------------------
 @app.post("/upload")
 async def upload_image(file: UploadFile = File(...)):
-    path = f"uploads/{file.filename}"
-    with open(path, "wb") as f:
-        f.write(await file.read())
-    return {"image_path": path}
+    try:
+        file_path = os.path.join(UPLOAD_DIR, file.filename)
+
+        with open(file_path, "wb") as f:
+            f.write(await file.read())
+
+        return {"image_path": f"uploads/{file.filename}"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # -------------------------------
 # ADD VIOLATION
@@ -81,40 +118,42 @@ def add_violation(v: Violation):
     conn = get_connection()
     cur = conn.cursor()
 
-    # ✅ Improved duplicate prevention
-    cur.execute("""
-    SELECT id FROM violations
-    WHERE track_id=? AND violation_type=? AND video_time=?
-    """, (v.track_id, v.violation_type, v.video_time))
+    try:
+        cur.execute("""
+        SELECT id FROM violations
+        WHERE track_id=? AND violation_type=? AND video_time=?
+        """, (v.track_id, v.violation_type, v.video_time))
 
-    if cur.fetchone():
+        if cur.fetchone():
+            return {"message": "Duplicate ignored"}
+
+        cur.execute("""
+        INSERT INTO violations
+        (time, camera_id, vehicle_type, vehicle_subtype, violation_type,
+         speed, image_path, confidence, track_id, plate_number, video_time)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            v.time,
+            v.camera_id,
+            v.vehicle_type,
+            v.vehicle_subtype,
+            v.violation_type,
+            v.speed,
+            v.image_path,
+            v.confidence,
+            v.track_id,
+            v.plate_number,
+            v.video_time
+        ))
+
+        conn.commit()
+        vid = cur.lastrowid
+
+        return {"message": "Violation stored", "violation_id": vid}
+
+    finally:
         conn.close()
-        return {"message": "Duplicate ignored"}
 
-    cur.execute("""
-    INSERT INTO violations
-    (time, camera_id, vehicle_type, vehicle_subtype, violation_type,
-     speed, image_path, confidence, track_id, plate_number, video_time)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        v.time,
-        v.camera_id,
-        v.vehicle_type,
-        v.vehicle_subtype,
-        v.violation_type,
-        v.speed,
-        v.image_path,
-        v.confidence,
-        v.track_id,
-        v.plate_number,
-        v.video_time
-    ))
-
-    conn.commit()
-    vid = cur.lastrowid
-    conn.close()
-
-    return {"message": "Violation stored", "violation_id": vid}
 
 # -------------------------------
 # AI ENTRY POINT
@@ -123,115 +162,43 @@ def add_violation(v: Violation):
 def report_violation(v: Violation):
     return add_violation(v)
 
+
 # -------------------------------
-# VIEW ALL VIOLATIONS
+# GET VIOLATIONS (🔥 OPTIMIZED)
 # -------------------------------
 @app.get("/violations")
 def get_violations(auth: bool = Depends(verify_token)):
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("SELECT * FROM violations")
-    rows = [dict(r) for r in cur.fetchall()]
-    conn.close()
-    return rows
+
+    try:
+        # 🔥 LIMIT DATA (prevents UI lag)
+        cur.execute("SELECT * FROM violations ORDER BY id DESC LIMIT 50")
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
 
 # -------------------------------
-# LATEST VIOLATION
+# LATEST
 # -------------------------------
 @app.get("/violations/latest")
 def latest_violation(auth: bool = Depends(verify_token)):
     conn = get_connection()
     cur = conn.cursor()
 
-    cur.execute("SELECT * FROM violations ORDER BY id DESC LIMIT 1")
-    row = cur.fetchone()
-    conn.close()
+    try:
+        cur.execute("SELECT * FROM violations ORDER BY id DESC LIMIT 1")
+        row = cur.fetchone()
 
-    if not row:
-        return {"message": "No violations found"}
+        if not row:
+            return {"message": "No violations found"}
 
-    return dict(row)
+        return dict(row)
 
-# -------------------------------
-# FILTER VIOLATIONS
-# -------------------------------
-@app.get("/violations/filter")
-def filter_violations(
-    vehicle_type: str = None,
-    violation_type: str = None,
-    auth: bool = Depends(verify_token)
-):
-    conn = get_connection()
-    cur = conn.cursor()
+    finally:
+        conn.close()
 
-    query = "SELECT * FROM violations WHERE 1=1"
-    params = []
-
-    if vehicle_type:
-        query += " AND vehicle_type=?"
-        params.append(vehicle_type)
-
-    if violation_type:
-        query += " AND violation_type=?"
-        params.append(violation_type)
-
-    cur.execute(query, params)
-    rows = [dict(r) for r in cur.fetchall()]
-    conn.close()
-
-    return rows
-
-# -------------------------------
-# ANALYTICS APIs
-# -------------------------------
-@app.get("/stats/total_violations")
-def total_violations():
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM violations")
-    total = cur.fetchone()[0]
-    conn.close()
-    return {"total_violations": total}
-
-@app.get("/stats/by_vehicle")
-def by_vehicle():
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT vehicle_type, COUNT(*)
-        FROM violations
-        GROUP BY vehicle_type
-    """)
-    data = {row[0]: row[1] for row in cur.fetchall()}
-    conn.close()
-    return data
-
-@app.get("/stats/by_camera")
-def by_camera():
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT camera_id, COUNT(*)
-        FROM violations
-        GROUP BY camera_id
-    """)
-    data = {row[0]: row[1] for row in cur.fetchall()}
-    conn.close()
-    return data
-
-@app.get("/stats/peak_time")
-def peak_time():
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT substr(time, 12, 2) AS hour, COUNT(*)
-        FROM violations
-        GROUP BY hour
-        ORDER BY COUNT(*) DESC
-    """)
-    data = {f"{row[0]}:00": row[1] for row in cur.fetchall()}
-    conn.close()
-    return data
 
 # -------------------------------
 # PDF GENERATION
@@ -240,27 +207,31 @@ def peak_time():
 def generate_ticket(violation_id: int, auth: bool = Depends(verify_token)):
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("SELECT * FROM violations WHERE id=?", (violation_id,))
-    v = cur.fetchone()
 
-    if not v:
+    try:
+        cur.execute("SELECT * FROM violations WHERE id=?", (violation_id,))
+        v = cur.fetchone()
+
+        if not v:
+            raise HTTPException(status_code=404, detail="Violation not found")
+
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", size=12)
+
+        pdf.cell(0, 10, "Traffic Violation Ticket", ln=True)
+
+        for k in v.keys():
+            pdf.cell(0, 8, f"{k}: {v[k]}", ln=True)
+
+        filename = f"ticket_{violation_id}.pdf"
+        path = os.path.join(TICKET_DIR, filename)
+        pdf.output(path)
+
+        cur.execute("UPDATE violations SET pdf_path=? WHERE id=?", (f"tickets/{filename}", violation_id))
+        conn.commit()
+
+        return {"ticket_path": f"tickets/{filename}"}
+
+    finally:
         conn.close()
-        raise HTTPException(status_code=404, detail="Violation not found")
-
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-
-    pdf.cell(0, 10, "Traffic Violation Ticket", ln=True)
-
-    for k in v.keys():
-        pdf.cell(0, 8, f"{k}: {v[k]}", ln=True)
-
-    path = f"tickets/ticket_{violation_id}.pdf"
-    pdf.output(path)
-
-    cur.execute("UPDATE violations SET pdf_path=? WHERE id=?", (path, violation_id))
-    conn.commit()
-    conn.close()
-
-    return {"ticket_path": path}

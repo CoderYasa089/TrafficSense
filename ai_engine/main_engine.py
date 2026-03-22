@@ -1,4 +1,4 @@
-from queue import Queue
+from queue import Queue, Empty
 import threading
 import cv2
 
@@ -13,9 +13,10 @@ class TrafficEngine:
     def __init__(self, video_path):
         self.video_path = video_path
 
-        # ✅ CLEAN WINDOW NAME
+        # ✅ CLEAN NAMES
         self.video_name = self.video_path.split("/")[-1]
-        self.window_name = f"CAMERA - {self.video_name}"
+        self.camera_id = self.video_name.replace(".mp4", "").upper()
+        self.window_name = f"CAMERA - {self.camera_id}"
 
         print(f"[INFO] Initializing Detector for {video_path}...")
         self.detector = Detector()
@@ -39,10 +40,16 @@ class TrafficEngine:
         while self.api_worker_running:
             try:
                 obj, image_path = self.api_queue.get(timeout=1)
+
                 response = send_violation(obj, image_path)
-                print(f"[API RESPONSE - {self.video_name}]", response)
-            except:
+                print(f"[API RESPONSE - {self.camera_id}]", response)
+
+                self.api_queue.task_done()
+
+            except Empty:
                 continue
+            except Exception as e:
+                print(f"[API ERROR - {self.camera_id}]", e)
 
     # -------------------------------
     # MAIN LOOP
@@ -60,16 +67,16 @@ class TrafficEngine:
         # ✅ Window setup
         cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
 
-        # 🔥 GRID SIZE
         WIDTH = 640
         HEIGHT = 360
         cv2.resizeWindow(self.window_name, WIDTH, HEIGHT)
 
-        # 🔥 GRID POSITIONS
+        # ✅ GRID POSITIONS
         positions = {
             "traffic1.mp4": (0, 0),
             "traffic3.mp4": (WIDTH + 10, 0),
             "traffic4.mp4": (0, HEIGHT + 40),
+            "traffic5.mp4": (WIDTH + 10, HEIGHT + 40),
         }
 
         if self.video_name in positions:
@@ -82,7 +89,7 @@ class TrafficEngine:
 
         frame_count = 0
 
-        print(f"[INFO] Processing started: {self.video_name}")
+        print(f"[INFO] Processing started: {self.camera_id}")
 
         while True:
             ret, frame = cap.read()
@@ -90,22 +97,23 @@ class TrafficEngine:
                 break
 
             frame_count += 1
-            video_time = frame_count / fps
 
             # ✅ FPS optimization
             if frame_count % 2 != 0:
                 continue
 
-            # Step 1: Detection
+            video_time = frame_count / fps
+
+            # -------------------------------
+            # PIPELINE
+            # -------------------------------
             detections = self.detector.detect(frame)
-
-            # Step 2: Tracking
             tracked_objects = self.tracker.update(detections)
-
-            # Step 3: Rule Engine
             processed_objects = self.rule_engine.update(tracked_objects)
 
-            # Step 4: Visualization
+            # -------------------------------
+            # VISUALIZATION + LOGIC
+            # -------------------------------
             for obj in processed_objects:
                 x1, y1, x2, y2 = obj["bbox"]
 
@@ -134,7 +142,9 @@ class TrafficEngine:
                     2
                 )
 
-                # ✅ Send only NEW violations
+                # -------------------------------
+                # SEND ONLY NEW VIOLATIONS
+                # -------------------------------
                 if obj["status"] == "VIOLATION_RED" and "violation_id" in obj:
                     vid = obj["violation_id"]
 
@@ -143,20 +153,24 @@ class TrafficEngine:
 
                         image_path = save_violation_image(frame.copy(), obj)
 
+                        # 🔥 IMPORTANT FIXES
                         obj["video_time"] = round(video_time, 2)
+                        obj["camera_id"] = self.camera_id
 
+                        # ✅ Send via queue
                         self.api_queue.put((obj.copy(), image_path))
 
-            # ✅ Display
+            # -------------------------------
+            # DISPLAY
+            # -------------------------------
             cv2.imshow(self.window_name, frame)
 
             key = cv2.waitKey(1) & 0xFF
 
-            # ESC
             if key == 27:
                 break
 
-            # Window close button
+            # ✅ Window close detection
             try:
                 if cv2.getWindowProperty(self.window_name, cv2.WND_PROP_VISIBLE) < 1:
                     break
@@ -174,14 +188,14 @@ class TrafficEngine:
         except:
             pass
 
-        print(f"[INFO] Camera stopped: {self.video_name}")
+        print(f"[INFO] Camera stopped: {self.camera_id}")
 
 
 # -------------------------------
 # ENTRY POINT
 # -------------------------------
 if __name__ == "__main__":
-    video_path = "data/videos/traffic1.mp4"
+    video_path = "data/videos/traffic5.mp4"
 
     engine = TrafficEngine(video_path)
     engine.run()

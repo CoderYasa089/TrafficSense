@@ -10,22 +10,27 @@ class Detector:
         # ✅ Load model
         self.model = YOLO(model_path)
 
-        # ✅ Move to GPU (IMPORTANT)
-        if self.device == "cuda":
-            self.model.to("cuda")
+        # ✅ Set device once (cleaner)
+        self.model.to(self.device)
 
-        # ✅ Slight speed optimization
+        # ✅ Enable FP16 for GPU (BIG speed boost)
+        self.use_fp16 = self.device == "cuda"
+
+        # ✅ Speed optimization
         torch.backends.cudnn.benchmark = True
 
-        # Allowed classes
-        self.allowed_classes = [
+        # ✅ Cache class names (avoid repeated lookup)
+        self.class_names = self.model.names
+
+        # ✅ Allowed classes
+        self.allowed_classes = {
             "person",
             "car",
             "motorcycle",
             "bus",
             "truck",
             "bicycle"
-        ]
+        }
 
         print(f"[INFO] Detector initialized on {self.device}")
 
@@ -34,13 +39,13 @@ class Detector:
         Run detection on a frame
         """
 
-        # ✅ Disable gradients (BIG PERFORMANCE BOOST)
         with torch.no_grad():
             results = self.model(
                 frame,
-                device=self.device,   # ✅ force GPU usage
                 conf=0.4,
                 imgsz=640,
+                device=self.device,
+                half=self.use_fp16,   # ✅ FP16 acceleration
                 verbose=False
             )
 
@@ -50,13 +55,11 @@ class Detector:
             if r.boxes is None:
                 continue
 
-            boxes = r.boxes
-
-            for box in boxes:
+            for box in r.boxes:
                 cls_id = int(box.cls[0])
-                cls_name = self.model.names[cls_id]
+                cls_name = self.class_names[cls_id]
 
-                # Filter classes
+                # ✅ Filter classes
                 if cls_name not in self.allowed_classes:
                     continue
 
