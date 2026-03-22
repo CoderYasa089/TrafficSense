@@ -1,6 +1,5 @@
+from queue import Queue
 import threading
-from urllib import response
-
 import cv2
 
 from ai_engine.core.detector import Detector
@@ -9,34 +8,81 @@ from ai_engine.core.rule_engine import RuleEngine
 from ai_engine.utils.api_client import send_violation
 from ai_engine.evidence.evidence import save_violation_image
 
+
 class TrafficEngine:
     def __init__(self, video_path):
         self.video_path = video_path
 
-        print("[INFO] Initializing Detector...")
+        # ✅ CLEAN WINDOW NAME
+        self.video_name = self.video_path.split("/")[-1]
+        self.window_name = f"CAMERA - {self.video_name}"
+
+        print(f"[INFO] Initializing Detector for {video_path}...")
         self.detector = Detector()
 
-        print("[INFO] Initializing Tracker...")
+        print(f"[INFO] Initializing Tracker for {video_path}...")
         self.tracker = Tracker()
 
-        print("[INFO] Initializing Rule Engine...")
+        print(f"[INFO] Initializing Rule Engine for {video_path}...")
         self.rule_engine = RuleEngine()
 
         self.sent_violations = set()
 
+        # ✅ Queue system
+        self.api_queue = Queue()
+        self.api_worker_running = True
+
+    # -------------------------------
+    # API WORKER
+    # -------------------------------
+    def api_worker(self):
+        while self.api_worker_running:
+            try:
+                obj, image_path = self.api_queue.get(timeout=1)
+                response = send_violation(obj, image_path)
+                print(f"[API RESPONSE - {self.video_name}]", response)
+            except:
+                continue
+
+    # -------------------------------
+    # MAIN LOOP
+    # -------------------------------
     def run(self):
         cap = cv2.VideoCapture(self.video_path)
 
         if not cap.isOpened():
-            print("[ERROR] Cannot open video")
+            print(f"[ERROR] Cannot open video: {self.video_path}")
             return
+
+        # ✅ Start API worker
+        threading.Thread(target=self.api_worker, daemon=True).start()
+
+        # ✅ Window setup
+        cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
+
+        # 🔥 GRID SIZE
+        WIDTH = 640
+        HEIGHT = 360
+        cv2.resizeWindow(self.window_name, WIDTH, HEIGHT)
+
+        # 🔥 GRID POSITIONS
+        positions = {
+            "traffic1.mp4": (0, 0),
+            "traffic3.mp4": (WIDTH + 10, 0),
+            "traffic4.mp4": (0, HEIGHT + 40),
+        }
+
+        if self.video_name in positions:
+            x, y = positions[self.video_name]
+            cv2.moveWindow(self.window_name, x, y)
 
         fps = cap.get(cv2.CAP_PROP_FPS)
         if fps == 0:
             fps = 30
+
         frame_count = 0
 
-        print("[INFO] Processing started...")
+        print(f"[INFO] Processing started: {self.video_name}")
 
         while True:
             ret, frame = cap.read()
@@ -45,6 +91,10 @@ class TrafficEngine:
 
             frame_count += 1
             video_time = frame_count / fps
+
+            # ✅ FPS optimization
+            if frame_count % 2 != 0:
+                continue
 
             # Step 1: Detection
             detections = self.detector.detect(frame)
@@ -58,7 +108,6 @@ class TrafficEngine:
             # Step 4: Visualization
             for obj in processed_objects:
                 x1, y1, x2, y2 = obj["bbox"]
-                obj_id = obj["id"]
 
                 if obj["status"] == "VIOLATION_RED":
                     color = (0, 0, 255)
@@ -73,50 +122,59 @@ class TrafficEngine:
                     label = f"{obj['class']} OK"
 
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+
                 y_text = max(20, y1 - 10)
+                cv2.putText(
+                    frame,
+                    label,
+                    (x1, y_text),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    color,
+                    2
+                )
 
-                cv2.putText(frame, label, (x1, y_text),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-                # SEND ONLY NEW VIOLATIONS
+                # ✅ Send only NEW violations
                 if obj["status"] == "VIOLATION_RED" and "violation_id" in obj:
-                    vid = obj.get("violation_id")
+                    vid = obj["violation_id"]
 
                     if vid not in self.sent_violations:
                         self.sent_violations.add(vid)
 
-                    image_path = save_violation_image(frame.copy(), obj)
+                        image_path = save_violation_image(frame.copy(), obj)
 
-                    obj["video_time"] = round(video_time, 2)
+                        obj["video_time"] = round(video_time, 2)
 
-                    import threading
+                        self.api_queue.put((obj.copy(), image_path))
 
-                    def async_send(obj, image_path):
-                        response = send_violation(obj, image_path)
-                        print("[API RESPONSE]", response)
+            # ✅ Display
+            cv2.imshow(self.window_name, frame)
 
-                    threading.Thread(target=async_send, args=(obj.copy(), image_path)).start()
+            key = cv2.waitKey(1) & 0xFF
 
-                cv2.imshow("TrafficSense Engine", frame)
+            # ESC
+            if key == 27:
+                break
 
-                key = cv2.waitKey(1)
-
-                # ESC key
-                if key == 27:
+            # Window close button
+            try:
+                if cv2.getWindowProperty(self.window_name, cv2.WND_PROP_VISIBLE) < 1:
                     break
+            except:
+                break
 
-                # ❗ FIX: window close detection
-                try:
-                    if cv2.getWindowProperty("TrafficSense Engine", cv2.WND_PROP_VISIBLE) < 1:
-                        break
-                except:
-                    break
-
+        # -------------------------------
+        # CLEAN EXIT
+        # -------------------------------
+        self.api_worker_running = False
         cap.release()
-        cv2.destroyAllWindows()
-        cv2.waitKey(1)
 
-        print("[INFO] Processing completed")
+        try:
+            cv2.destroyWindow(self.window_name)
+        except:
+            pass
+
+        print(f"[INFO] Camera stopped: {self.video_name}")
 
 
 # -------------------------------
@@ -126,5 +184,4 @@ if __name__ == "__main__":
     video_path = "data/videos/traffic1.mp4"
 
     engine = TrafficEngine(video_path)
-    cv2.namedWindow("TrafficSense Engine", cv2.WINDOW_NORMAL)
     engine.run()

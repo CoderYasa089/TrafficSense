@@ -54,7 +54,7 @@ class Violation(BaseModel):
     track_id: str
     plate_number: Optional[str] = None
     video_time: Optional[float] = None
-    pdf_path: Optional[str] = None  # 🔥 FIX
+    pdf_path: Optional[str] = None
 
 # -------------------------------
 # HEALTH
@@ -81,11 +81,11 @@ def add_violation(v: Violation):
     conn = get_connection()
     cur = conn.cursor()
 
-    # 🔥 FIXED duplicate prevention
+    # ✅ Improved duplicate prevention
     cur.execute("""
-    SELECT * FROM violations 
-    WHERE track_id=? AND violation_type=?
-    """, (v.track_id, v.violation_type))
+    SELECT id FROM violations
+    WHERE track_id=? AND violation_type=? AND video_time=?
+    """, (v.track_id, v.violation_type, v.video_time))
 
     if cur.fetchone():
         conn.close()
@@ -143,11 +143,7 @@ def latest_violation(auth: bool = Depends(verify_token)):
     conn = get_connection()
     cur = conn.cursor()
 
-    cur.execute("""
-    SELECT * FROM violations
-    ORDER BY id DESC LIMIT 1
-    """)
-
+    cur.execute("SELECT * FROM violations ORDER BY id DESC LIMIT 1")
     row = cur.fetchone()
     conn.close()
 
@@ -254,6 +250,7 @@ def generate_ticket(violation_id: int, auth: bool = Depends(verify_token)):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", size=12)
+
     pdf.cell(0, 10, "Traffic Violation Ticket", ln=True)
 
     for k in v.keys():
