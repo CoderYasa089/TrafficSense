@@ -18,7 +18,7 @@ if __name__ == "__main__":
     video_list = [
         "data/videos/traffic5.mp4",
         "data/videos/traffic3.mp4",
-        "data/videos/traffic4.mp4"
+        "data/videos/traffic1.mp4"
     ]
 
     threads = []
