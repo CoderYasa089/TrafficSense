@@ -5,15 +5,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 import os
+import logging
 from fpdf import FPDF
 
 from database import get_connection, create_table, migrate_database
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 app = FastAPI(title="TrafficSense Backend")
 
-# -------------------------------
-# CORS (🔥 REQUIRED FOR FRONTEND)
-# -------------------------------
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,32 +24,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# -------------------------------
-# PATH SETUP (🔥 FIXED)
-# -------------------------------
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 TICKET_DIR = os.path.join(BASE_DIR, "tickets")
-
-# 🔥 CRITICAL: correct data path
 DATA_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "data"))
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(TICKET_DIR, exist_ok=True)
 
-# -------------------------------
-# STATIC FILES
-# -------------------------------
+
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 app.mount("/tickets", StaticFiles(directory=TICKET_DIR), name="tickets")
-
-# 🔥 THIS FIXES IMAGE 404
 app.mount("/data", StaticFiles(directory=DATA_DIR), name="data")
 
-# -------------------------------
-# SECURITY
-# -------------------------------
+
 security = HTTPBearer()
 ADMIN_TOKEN = "admin_secret_token"
 
@@ -58,18 +50,12 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     return True
 
 
-# -------------------------------
-# STARTUP
-# -------------------------------
 @app.on_event("startup")
 def startup():
     create_table()
     migrate_database()
 
 
-# -------------------------------
-# MODELS
-# -------------------------------
 class Violation(BaseModel):
     time: str
     camera_id: str
@@ -85,17 +71,11 @@ class Violation(BaseModel):
     pdf_path: Optional[str] = None
 
 
-# -------------------------------
-# HEALTH
-# -------------------------------
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
 
-# -------------------------------
-# IMAGE UPLOAD
-# -------------------------------
 @app.post("/upload")
 async def upload_image(file: UploadFile = File(...)):
     try:
@@ -107,44 +87,48 @@ async def upload_image(file: UploadFile = File(...)):
         return {"image_path": f"uploads/{file.filename}"}
 
     except Exception as e:
+        logger.error(f"Upload failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# -------------------------------
-# ADD VIOLATION
-# -------------------------------
 @app.post("/violation")
 def add_violation(v: Violation):
     conn = get_connection()
     cur = conn.cursor()
 
     try:
-        cur.execute("""
-        SELECT id FROM violations
-        WHERE track_id=? AND violation_type=? AND video_time=?
-        """, (v.track_id, v.violation_type, v.video_time))
+        cur.execute(
+            """
+            SELECT id FROM violations
+            WHERE track_id=? AND violation_type=? AND video_time=?
+            """,
+            (v.track_id, v.violation_type, v.video_time),
+        )
 
         if cur.fetchone():
             return {"message": "Duplicate ignored"}
 
-        cur.execute("""
-        INSERT INTO violations
-        (time, camera_id, vehicle_type, vehicle_subtype, violation_type,
-         speed, image_path, confidence, track_id, plate_number, video_time)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            v.time,
-            v.camera_id,
-            v.vehicle_type,
-            v.vehicle_subtype,
-            v.violation_type,
-            v.speed,
-            v.image_path,
-            v.confidence,
-            v.track_id,
-            v.plate_number,
-            v.video_time
-        ))
+        cur.execute(
+            """
+            INSERT INTO violations
+            (time, camera_id, vehicle_type, vehicle_subtype, violation_type,
+             speed, image_path, confidence, track_id, plate_number, video_time)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                v.time,
+                v.camera_id,
+                v.vehicle_type,
+                v.vehicle_subtype,
+                v.violation_type,
+                v.speed,
+                v.image_path,
+                v.confidence,
+                v.track_id,
+                v.plate_number,
+                v.video_time,
+            ),
+        )
 
         conn.commit()
         vid = cur.lastrowid
@@ -155,40 +139,34 @@ def add_violation(v: Violation):
         conn.close()
 
 
-# -------------------------------
-# AI ENTRY POINT
-# -------------------------------
 @app.post("/report_violation")
 def report_violation(v: Violation):
     return add_violation(v)
 
 
-# -------------------------------
-# GET VIOLATIONS (🔥 OPTIMIZED)
-# -------------------------------
 @app.get("/violations")
 def get_violations(auth: bool = Depends(verify_token)):
     conn = get_connection()
     cur = conn.cursor()
 
     try:
-        # 🔥 LIMIT DATA (prevents UI lag)
-        cur.execute("SELECT * FROM violations ORDER BY id DESC LIMIT 50")
+        cur.execute(
+            "SELECT * FROM violations ORDER BY id DESC LIMIT 50"
+        )
         return [dict(r) for r in cur.fetchall()]
     finally:
         conn.close()
 
 
-# -------------------------------
-# LATEST
-# -------------------------------
 @app.get("/violations/latest")
 def latest_violation(auth: bool = Depends(verify_token)):
     conn = get_connection()
     cur = conn.cursor()
 
     try:
-        cur.execute("SELECT * FROM violations ORDER BY id DESC LIMIT 1")
+        cur.execute(
+            "SELECT * FROM violations ORDER BY id DESC LIMIT 1"
+        )
         row = cur.fetchone()
 
         if not row:
@@ -200,16 +178,16 @@ def latest_violation(auth: bool = Depends(verify_token)):
         conn.close()
 
 
-# -------------------------------
-# PDF GENERATION
-# -------------------------------
 @app.get("/ticket/{violation_id}")
 def generate_ticket(violation_id: int, auth: bool = Depends(verify_token)):
     conn = get_connection()
     cur = conn.cursor()
 
     try:
-        cur.execute("SELECT * FROM violations WHERE id=?", (violation_id,))
+        cur.execute(
+            "SELECT * FROM violations WHERE id=?",
+            (violation_id,),
+        )
         v = cur.fetchone()
 
         if not v:
@@ -226,9 +204,13 @@ def generate_ticket(violation_id: int, auth: bool = Depends(verify_token)):
 
         filename = f"ticket_{violation_id}.pdf"
         path = os.path.join(TICKET_DIR, filename)
+
         pdf.output(path)
 
-        cur.execute("UPDATE violations SET pdf_path=? WHERE id=?", (f"tickets/{filename}", violation_id))
+        cur.execute(
+            "UPDATE violations SET pdf_path=? WHERE id=?",
+            (f"tickets/{filename}", violation_id),
+        )
         conn.commit()
 
         return {"ticket_path": f"tickets/{filename}"}

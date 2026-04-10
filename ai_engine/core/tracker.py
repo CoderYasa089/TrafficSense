@@ -4,9 +4,9 @@ import math
 class Tracker:
     def __init__(self, max_distance=50, max_lost=5):
         self.next_id = 0
-        self.objects = {}   # id -> {centroid, positions, lost}
+        self.objects = {}  # id -> {centroid, positions, lost}
         self.max_distance = max_distance
-        self.max_lost = max_lost  # ✅ tolerate missing frames
+        self.max_lost = max_lost
 
     def _get_centroid(self, bbox):
         x1, y1, x2, y2 = bbox
@@ -18,12 +18,8 @@ class Tracker:
     def update(self, detections):
         updated_objects = {}
         results = []
-
         used_ids = set()
 
-        # -------------------------------
-        # MATCH DETECTIONS TO EXISTING OBJECTS
-        # -------------------------------
         for det in detections:
             centroid = self._get_centroid(det["bbox"])
 
@@ -40,9 +36,6 @@ class Tracker:
                     min_dist = dist
                     best_id = obj_id
 
-            # -------------------------------
-            # ASSIGN ID
-            # -------------------------------
             if best_id is None:
                 obj_id = self.next_id
                 self.next_id += 1
@@ -50,30 +43,25 @@ class Tracker:
                 obj_data = {
                     "centroid": centroid,
                     "positions": [centroid],
-                    "lost": 0
+                    "lost": 0,
                 }
-
             else:
                 obj_id = best_id
                 obj_data = self.objects[obj_id]
 
                 obj_data["centroid"] = centroid
                 obj_data["positions"].append(centroid)
-                obj_data["lost"] = 0  # ✅ reset lost counter
+                obj_data["lost"] = 0
 
-                # keep last N positions
                 if len(obj_data["positions"]) > 5:
                     obj_data["positions"].pop(0)
 
             used_ids.add(obj_id)
             updated_objects[obj_id] = obj_data
 
-            # -------------------------------
-            # STABLE SPEED (AVERAGED)
-            # -------------------------------
             if len(obj_data["positions"]) >= 2:
-                total_dist = 0
                 positions = obj_data["positions"]
+                total_dist = 0
 
                 for i in range(1, len(positions)):
                     total_dist += self._distance(positions[i - 1], positions[i])
@@ -87,15 +75,11 @@ class Tracker:
 
             results.append(det)
 
-        # -------------------------------
-        # HANDLE LOST OBJECTS (IMPORTANT FIX)
-        # -------------------------------
         for obj_id, obj_data in self.objects.items():
             if obj_id not in updated_objects:
                 obj_data["lost"] += 1
 
                 if obj_data["lost"] <= self.max_lost:
-                    # keep object alive
                     updated_objects[obj_id] = obj_data
 
         self.objects = updated_objects
